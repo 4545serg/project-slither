@@ -1,0 +1,57 @@
+name: Build PROJECT SLITHER
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install 3DS libraries and host tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl git make gcc g++ cmake zlib1g-dev ca-certificates
+          (dkp-pacman -Syu --noconfirm --needed 3ds-dev || pacman -Syu --noconfirm --needed 3ds-dev)
+
+      - name: Fetch minimp3 and stb_image
+        run: sh tools/get_deps.sh
+
+      - name: Build .3dsx
+        run: make
+
+      - name: Upload .3dsx
+        uses: actions/upload-artifact@v4
+        with:
+          name: project_slither-3dsx
+          path: |
+            project_slither.3dsx
+            project_slither.smdh
+
+      - name: Build makerom and bannertool
+        id: tools
+        continue-on-error: true
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/3DSGuy/Project_CTR.git /tmp/ctr
+          make -C /tmp/ctr/makerom deps || true
+          make -C /tmp/ctr/makerom -j"$(nproc)"
+          install -m755 "$(find /tmp/ctr/makerom -name makerom -type f | head -1)" /usr/local/bin/makerom
+          git clone --depth 1 --recursive https://github.com/Steveice10/bannertool.git /tmp/bannertool
+          make -C /tmp/bannertool -j"$(nproc)"
+          install -m755 "$(find /tmp/bannertool -name bannertool -type f -perm -u+x | head -1)" /usr/local/bin/bannertool
+
+      - name: Build .cia
+        if: steps.tools.outcome == 'success'
+        run: make cia
+
+      - name: Upload .cia
+        if: steps.tools.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: project_slither-cia
+          path: project_slither.cia
