@@ -16,7 +16,12 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends curl git make gcc g++ cmake zlib1g-dev ca-certificates
-          (dkp-pacman -Syu --noconfirm --needed 3ds-dev || pacman -Syu --noconfirm --needed 3ds-dev)
+          for i in 1 2 3 4 5; do
+            dkp-pacman -Syu --noconfirm --needed 3ds-dev && break
+            echo "devkitPro server refused the request, retrying in 30s..."
+            sleep 30
+          done
+          dkp-pacman -Q libctru citro2d
 
       - name: Fetch minimp3 and stb_image
         run: sh tools/get_deps.sh
