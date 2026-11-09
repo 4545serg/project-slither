@@ -23,10 +23,10 @@
 #include "slither.h"
 
 /* ---------------------------------------------------------------- layout */
-#define LIST_TOP   26
-#define ROW_H      20
-#define VIS_ROWS   8
-#define CTRL_TOP   192
+#define LIST_TOP   36
+#define ROW_H      32
+#define VIS_ROWS   5
+#define CTRL_TOP   196
 #define SET_TOP    28
 #define SET_ROW_H  24
 #define SET_ROWS   7
@@ -331,110 +331,175 @@ static void draw_snake(float bx, float by, float size, u32 body, u32 eye, float 
     C2D_DrawCircleSolid(hx + hr * 0.25f, hy - hr * 0.30f, 0.45f, hr * 0.30f, eye);
 }
 
+/* ---- small icon helpers (s = half-height of the icon) ---- */
+static void icon_prev(float cx, float cy, float s, u32 c)
+{
+    C2D_DrawRectSolid(cx - s, cy - s, 0.45f, s * 0.28f, 2 * s, c);
+    C2D_DrawTriangle(cx + s, cy - s, c, cx + s, cy + s, c, cx - s * 0.6f, cy, c, 0.45f);
+}
+
+static void icon_next(float cx, float cy, float s, u32 c)
+{
+    C2D_DrawTriangle(cx - s, cy - s, c, cx - s, cy + s, c, cx + s * 0.6f, cy, c, 0.45f);
+    C2D_DrawRectSolid(cx + s * 0.72f, cy - s, 0.45f, s * 0.28f, 2 * s, c);
+}
+
+static void icon_play(float cx, float cy, float s, u32 c)
+{
+    C2D_DrawTriangle(cx - s * 0.6f, cy - s, c, cx - s * 0.6f, cy + s, c, cx + s, cy, c, 0.45f);
+}
+
+static void icon_pause(float cx, float cy, float s, u32 c)
+{
+    C2D_DrawRectSolid(cx - s * 0.7f, cy - s, 0.45f, s * 0.5f, 2 * s, c);
+    C2D_DrawRectSolid(cx + s * 0.2f, cy - s, 0.45f, s * 0.5f, 2 * s, c);
+}
+
+static void icon_note(float x, float y, u32 c)   /* ~14x16 music note, top-left at x,y */
+{
+    C2D_DrawCircleSolid(x + 4, y + 13, 0.45f, 3.5f, c);
+    C2D_DrawRectSolid(x + 6.5f, y, 0.45f, 2, 13, c);
+    C2D_DrawRectSolid(x + 6.5f, y, 0.45f, 6, 2, c);
+}
+
+/* rounded rectangle: two rects + four corner circles */
+static void rrect(float x, float y, float w, float h, float r, float z, u32 c)
+{
+    C2D_DrawRectSolid(x + r, y, z, w - 2 * r, h, c);
+    C2D_DrawRectSolid(x, y + r, z, w, h - 2 * r, c);
+    C2D_DrawCircleSolid(x + r, y + r, z, r, c);
+    C2D_DrawCircleSolid(x + w - r, y + r, z, r, c);
+    C2D_DrawCircleSolid(x + r, y + h - r, z, r, c);
+    C2D_DrawCircleSolid(x + w - r, y + h - r, z, r, c);
+}
+
+static Rgb tile_color(const char *s)
+{
+    unsigned h = 5381;
+    for (; *s; s++) h = h * 33u + (unsigned char)*s;
+    return mix_rgb(S.select, S.accent, (int)(70 + h % 140));
+}
+
+static float progress_frac(u32 pos, u32 dur)
+{
+    float f = dur ? (float)pos / (float)dur : 0.0f;
+    if (f < 0.0f) f = 0.0f;
+    if (f > 1.0f) f = 1.0f;
+    return f;
+}
+
+/* ------------------------------------------------ TOP: now playing screen */
 static void draw_top(void)
 {
-    u32 cText = C(S.text), cAcc = C(S.accent), cSel = C(S.select);
+    u32 cText = C(S.text), cAcc = C(S.accent), cSel = C(S.select), cBg = C(S.bg);
     u32 cDim = C(mix_rgb(S.text, S.bg, 120));
 
-    draw_text("NOW PLAYING", 200, 4, 0.6f, cAcc, C2D_AlignCenter, 0);
+    draw_text("NOW PLAYING", 16, 8, 0.5f, cAcc, C2D_AlignLeft, 0);
 
-    /* artwork */
-    const float ax = 144, ay = 30, asz = 112;
+    /* cover on the left */
+    const float ax = 16, ay = 32, asz = 150;
     if (art_ready()) {
         C2D_DrawImageAt(*art_image(), ax, ay, 0.40f, NULL, asz / 128.0f, asz / 128.0f);
     } else {
-        C2D_DrawRectSolid(ax, ay, 0.30f, asz, asz, cSel);
-        draw_snake(ax, ay, asz, cAcc, C(S.bg), snake_phase);
+        rrect(ax, ay, asz, asz, 8, 0.30f, cSel);
+        draw_snake(ax, ay, asz, cAcc, cBg, snake_phase);
     }
 
+    /* title + artist on the right */
+    const float tx = 184, tw = 204;
     if (track_loaded) {
-        draw_text(cur.title, 200, 146, 0.65f, cText, C2D_AlignCenter, 380);
-        draw_text(cur.artist[0] ? cur.artist : "Unknown artist", 200, 168, 0.5f, cDim, C2D_AlignCenter, 380);
+        draw_text(cur.title, tx, 38, 0.8f, cText, C2D_AlignLeft, tw);
+        draw_text(cur.artist[0] ? cur.artist : "Unknown artist", tx, 72, 0.55f, cDim, C2D_AlignLeft, tw);
     } else {
-        draw_text("No track selected", 200, 146, 0.65f, cText, C2D_AlignCenter, 380);
-        draw_text("Pick a song on the bottom screen", 200, 168, 0.5f, cDim, C2D_AlignCenter, 380);
+        draw_text("Nothing playing", tx, 38, 0.8f, cText, C2D_AlignLeft, tw);
+        draw_text("Pick a song below", tx, 72, 0.55f, cDim, C2D_AlignLeft, tw);
     }
 
-    /* progress */
+    /* transport icons (display only) */
+    const float cy = 138;
+    bool playing = audio_is_active() && !audio_is_paused();
+    u32 cShuf = S.shuffle ? cAcc : cDim;
+    u32 cRep  = S.repeat ? cAcc : cDim;
+    draw_text("SHUF", 200, cy - 8, 0.45f, cShuf, C2D_AlignCenter, 0);
+    icon_prev(238, cy, 9, cText);
+    C2D_DrawCircleSolid(286, cy, 0.40f, 24, cText);
+    if (playing) icon_pause(286, cy, 10, cBg); else icon_play(286, cy, 10, cBg);
+    icon_next(334, cy, 9, cText);
+    draw_text(S.repeat == 2 ? "REP 1" : "REP", 372, cy - 8, 0.45f, cRep, C2D_AlignCenter, 0);
+
+    /* times + full-width progress bar along the bottom edge */
     u32 pos = track_loaded ? audio_position_ms() : 0;
     u32 dur = track_loaded ? cur.duration_ms : 0;
-    float frac = dur ? (float)pos / (float)dur : 0.0f;
-    if (frac > 1.0f) frac = 1.0f;
-
-    const float bx = 40, by = 196, bw = 320, bh = 6;
-    C2D_DrawRectSolid(bx, by, 0.30f, bw, bh, cSel);
-    C2D_DrawRectSolid(bx, by, 0.35f, bw * frac, bh, cAcc);
-    C2D_DrawCircleSolid(bx + bw * frac, by + bh / 2, 0.40f, 6.0f, cAcc);
+    float frac = progress_frac(pos, dur);
 
     char a[16], b[16];
     fmt_time(a, sizeof a, pos);
     if (dur) fmt_time(b, sizeof b, dur); else snprintf(b, sizeof b, "--:--");
-    draw_text(a, bx, 208, 0.5f, cText, C2D_AlignLeft, 0);
-    draw_text(b, bx + bw, 208, 0.5f, cText, C2D_AlignRight, 0);
+    draw_text(a, 16, 194, 0.5f, cText, C2D_AlignLeft, 0);
+    draw_text(b, 384, 194, 0.5f, cText, C2D_AlignRight, 0);
 
-    if (status_msg[0]) draw_text(status_msg, 200, 224, 0.4f, cAcc, C2D_AlignCenter, 390);
+    const float by = 214;
+    float dx = 6.0f + 388.0f * frac;
+    C2D_DrawRectSolid(0, by, 0.30f, 400, 4, cSel);
+    C2D_DrawRectSolid(0, by, 0.35f, dx, 4, cAcc);
+    C2D_DrawCircleSolid(dx, by + 2, 0.40f, 6, cAcc);
+
+    if (status_msg[0]) draw_text(status_msg, 200, 223, 0.4f, cAcc, C2D_AlignCenter, 390);
 }
 
-static void draw_button_icons(int i, float x, float y, u32 fg)
+/* ------------------------------------------- BOTTOM: library + mini player */
+static void draw_miniplayer(void)
 {
-    switch (i) {
-    case 0: /* previous */
-        C2D_DrawRectSolid(x + 13, y + 12, 0.45f, 3, 16, fg);
-        C2D_DrawTriangle(x + 34, y + 12, fg, x + 34, y + 28, fg, x + 18, y + 20, fg, 0.45f);
-        break;
-    case 1: /* play / pause */
-        if (audio_is_active() && !audio_is_paused()) {
-            C2D_DrawRectSolid(x + 15, y + 11, 0.45f, 6, 18, fg);
-            C2D_DrawRectSolid(x + 27, y + 11, 0.45f, 6, 18, fg);
-        } else {
-            C2D_DrawTriangle(x + 16, y + 10, fg, x + 16, y + 30, fg, x + 34, y + 20, fg, 0.45f);
-        }
-        break;
-    case 2: /* next */
-        C2D_DrawTriangle(x + 14, y + 12, fg, x + 14, y + 28, fg, x + 30, y + 20, fg, 0.45f);
-        C2D_DrawRectSolid(x + 32, y + 12, 0.45f, 3, 16, fg);
-        break;
-    default:
-        break;
-    }
-}
+    u32 cText = C(S.text), cAcc = C(S.accent), cSel = C(S.select);
+    u32 cDim = C(mix_rgb(S.text, S.bg, 120));
 
-static void draw_controls(void)
-{
-    u32 cSel = C(S.select), cText = C(S.text), cAcc = C(S.accent);
-    u32 cDim = C(mix_rgb(S.text, S.bg, 140));
-    static const char *rep_label[3] = { "OFF", "ALL", "ONE" };
+    const float y = CTRL_TOP;
+    C2D_DrawRectSolid(0, y, 0.30f, 320, 240 - y, C(mix_rgb(S.bg, S.select, 150)));
 
-    for (int i = 0; i < 6; i++) {
-        float x = 6.0f + i * 52.0f, y = CTRL_TOP + 2.0f;
-        C2D_DrawRectSolid(x, y, 0.30f, 48, 42, cSel);
-        if (i < 3) {
-            draw_button_icons(i, x, y, cText);
-        } else if (i == 3) {
-            u32 c = S.shuffle ? cAcc : cDim;
-            draw_text("SHUF", x + 24, y + 6, 0.45f, c, C2D_AlignCenter, 0);
-            draw_text(S.shuffle ? "ON" : "OFF", x + 24, y + 22, 0.45f, c, C2D_AlignCenter, 0);
-        } else if (i == 4) {
-            u32 c = S.repeat ? cAcc : cDim;
-            draw_text("REP", x + 24, y + 6, 0.45f, c, C2D_AlignCenter, 0);
-            draw_text(rep_label[S.repeat], x + 24, y + 22, 0.45f, c, C2D_AlignCenter, 0);
-        } else {
-            draw_text("MENU", x + 24, y + 12, 0.45f, cText, C2D_AlignCenter, 0);
-        }
+    float frac = progress_frac(track_loaded ? audio_position_ms() : 0, track_loaded ? cur.duration_ms : 0);
+    C2D_DrawRectSolid(0, y, 0.35f, 320, 2, cSel);
+    C2D_DrawRectSolid(0, y, 0.38f, 320.0f * frac, 2, cAcc);
+
+    if (track_loaded && art_ready()) {
+        C2D_DrawImageAt(*art_image(), 10, y + 9, 0.40f, NULL, 28.0f / 128.0f, 28.0f / 128.0f);
+    } else {
+        rrect(10, y + 9, 28, 28, 5, 0.35f, cSel);
+        icon_note(17, y + 15, cDim);
     }
+
+    if (track_loaded) {
+        draw_text(cur.title, 46, y + 8, 0.5f, cText, C2D_AlignLeft, 132);
+        draw_text(cur.artist[0] ? cur.artist : "Unknown artist", 46, y + 25, 0.4f, cDim, C2D_AlignLeft, 132);
+    } else {
+        draw_text("Not playing", 46, y + 14, 0.5f, cDim, C2D_AlignLeft, 132);
+    }
+
+    const float cy = y + 23;
+    bool playing = audio_is_active() && !audio_is_paused();
+    icon_prev(202, cy, 8, cText);
+    if (playing) icon_pause(238, cy, 10, cText); else icon_play(238, cy, 10, cText);
+    icon_next(274, cy, 8, cText);
+    for (int k = -1; k <= 1; k++) C2D_DrawCircleSolid(306, cy + k * 7, 0.45f, 2.2f, cDim);   /* menu */
 }
 
 static int loads_this_frame = 0;
 
 static void draw_browser(void)
 {
-    u32 cText = C(S.text), cAcc = C(S.accent), cSel = C(S.select);
+    u32 cText = C(S.text), cAcc = C(S.accent), cSel = C(S.select), cBg = C(S.bg);
     u32 cDim = C(mix_rgb(S.text, S.bg, 120));
 
+    /* large title header */
+    draw_text("Library", 12, 1, 0.85f, cText, C2D_AlignLeft, 0);
     const char *shown = L.dir;
     if (!strncmp(shown, "sdmc:/", 6)) shown += 6;
-    draw_text(shown, 8, 4, 0.5f, cAcc, C2D_AlignLeft, 304);
-    C2D_DrawRectSolid(8, LIST_TOP - 3, 0.30f, 304, 1, cSel);
+    draw_text(shown, 12, 23, 0.38f, cDim, C2D_AlignLeft, 176);
+
+    rrect(196, 8, 58, 20, 10, 0.30f, S.shuffle ? cAcc : cSel);
+    draw_text("Shuffle", 225, 11, 0.42f, S.shuffle ? cBg : cText, C2D_AlignCenter, 0);
+    rrect(258, 8, 58, 20, 10, 0.30f, S.repeat ? cAcc : cSel);
+    draw_text(S.repeat == 0 ? "Repeat" : (S.repeat == 1 ? "Rep All" : "Rep One"), 287, 11, 0.42f,
+              S.repeat ? cBg : cText, C2D_AlignCenter, 0);
 
     if (L.n == 0) {
         draw_text("No MP3 files here", 160, 80, 0.55f, cText, C2D_AlignCenter, 0);
@@ -450,46 +515,50 @@ static void draw_browser(void)
         bool cur_row = is_current_row(idx);
         bool playing = cur_row && audio_is_active() && !audio_is_paused();
 
-        if (idx == sel) C2D_DrawRectSolid(0, y, 0.25f, 312, ROW_H, cSel);
+        if (idx == sel) rrect(4, y + 1, 304, ROW_H - 2, 8, 0.25f, cSel);
         u32 col = cur_row ? cAcc : cText;
 
-        /* icon */
+        /* square thumbnail tile */
+        const float tx = 12, ty = y + 4, ts = 24;
+        Rgb tc = e->is_dir ? mix_rgb(S.select, S.text, 60) : tile_color(e->name);
+        rrect(tx, ty, ts, ts, 5, 0.32f, C(tc));
         if (e->is_dir) {
-            C2D_DrawRectSolid(8, y + 5, 0.40f, 5, 3, col);
-            C2D_DrawRectSolid(8, y + 8, 0.40f, 12, 8, col);
+            C2D_DrawRectSolid(tx + 5, ty + 7, 0.45f, 6, 3, cText);
+            C2D_DrawRectSolid(tx + 5, ty + 10, 0.45f, 14, 8, cText);
         } else if (playing) {
-            C2D_DrawTriangle(9, y + 5, col, 9, y + 15, col, 19, y + 10, col, 0.40f);
+            for (int k = 0; k < 3; k++) {
+                float h = 5.0f + 10.0f * (0.5f + 0.5f * sinf(snake_phase * 2.0f + k * 1.7f));
+                C2D_DrawRectSolid(tx + 5 + k * 6, ty + ts - 5 - h, 0.45f, 4, h, cAcc);
+            }
         } else {
-            C2D_DrawCircleSolid(13, y + 12, 0.40f, 3.5f, col);
-            C2D_DrawRectSolid(15.5f, y + 4, 0.40f, 2, 9, col);
+            icon_note(tx + 5, ty + 4, cText);
         }
 
-        /* label */
-        char label[300];
+        /* text */
+        const float lx = 44;
         if (e->is_dir) {
-            snprintf(label, sizeof label, "%s", !strcmp(e->name, "..") ? ".. (up)" : e->name);
+            draw_text(!strcmp(e->name, "..") ? "Back" : e->name, lx, y + 8, 0.55f, col, C2D_AlignLeft, 262);
         } else {
             if (!e->meta_loaded && loads_this_frame < 2) { ensure_meta(e); loads_this_frame++; }
-            if (e->meta_loaded && e->title[0]) {
-                if (e->artist[0]) snprintf(label, sizeof label, "%s - %s", e->title, e->artist);
-                else              snprintf(label, sizeof label, "%s", e->title);
-            } else {
-                snprintf(label, sizeof label, "%s", e->name);
-            }
+            const char *title = (e->meta_loaded && e->title[0]) ? e->title : e->name;
+            draw_text(title, lx, y + 3, 0.5f, col, C2D_AlignLeft, 262);
+            if (e->meta_loaded && e->artist[0])
+                draw_text(e->artist, lx, y + 17, 0.4f, cDim, C2D_AlignLeft, 262);
         }
-        draw_text(label, 26, y + 2, 0.5f, col, C2D_AlignLeft, 282);
+
+        C2D_DrawRectSolid(lx, y + ROW_H - 1, 0.30f, 264, 1, cSel);   /* divider */
     }
 
     if (L.n > VIS_ROWS) {
         float track_h = VIS_ROWS * ROW_H;
         float th = track_h * VIS_ROWS / L.n;
         if (th < 12) th = 12;
-        float ty = LIST_TOP + (track_h - th) * scroll_top / (L.n - VIS_ROWS);
+        float ty2 = LIST_TOP + (track_h - th) * scroll_top / (L.n - VIS_ROWS);
         C2D_DrawRectSolid(316, LIST_TOP, 0.30f, 3, track_h, cSel);
-        C2D_DrawRectSolid(316, ty, 0.35f, 3, th, cAcc);
+        C2D_DrawRectSolid(316, ty2, 0.35f, 3, th, cAcc);
     }
 
-    draw_controls();
+    draw_miniplayer();
 }
 
 static void draw_settings(void)
@@ -542,19 +611,18 @@ static void draw_settings(void)
 }
 
 /* ------------------------------------------------------------------ input */
-static void handle_ctrl_tap(int px)
+static void handle_ctrl_tap(int px)      /* mini player at the bottom */
 {
-    int i = (px - 6) / 52;
-    int off = (px - 6) % 52;
-    if (px < 6 || i < 0 || i > 5 || off >= 48) return;
-    switch (i) {
-    case 0: prev_track(); break;
-    case 1: toggle_play(); break;
-    case 2: next_track(true); break;
-    case 3: S.shuffle = !S.shuffle; mark_dirty(); break;
-    case 4: S.repeat = (S.repeat + 1) % 3; mark_dirty(); break;
-    case 5: settings_open = true; set_row = 0; break;
-    }
+    if (px >= 184 && px < 220)      prev_track();
+    else if (px >= 220 && px < 256) toggle_play();
+    else if (px >= 256 && px < 292) next_track(true);
+    else if (px >= 292)             { settings_open = true; set_row = 0; }
+}
+
+static void handle_header_tap(int px)    /* shuffle / repeat chips */
+{
+    if (px >= 196 && px < 256)      { S.shuffle = !S.shuffle; mark_dirty(); }
+    else if (px >= 256 && px < 318) { S.repeat = (S.repeat + 1) % 3; mark_dirty(); }
 }
 
 static void handle_settings_touch(touchPosition tp)
@@ -655,6 +723,7 @@ int main(void)
                 drag_accum = 0;
                 touch_in_list = (tp.py >= LIST_TOP && tp.py < LIST_TOP + VIS_ROWS * ROW_H);
                 if (tp.py >= CTRL_TOP) handle_ctrl_tap(tp.px);
+                else if (tp.py < LIST_TOP) handle_header_tap(tp.px);
             }
             if ((kh & KEY_TOUCH) && touch_in_list) {
                 if (!dragging && abs((int)tp.py - (int)tp_start.py) > 8) dragging = true;

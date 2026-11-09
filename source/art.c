@@ -57,7 +57,7 @@ static bool build_texture(const unsigned char *data, size_t size)
     unsigned char *dst = (unsigned char *)g_tex.data;
 
     for (int dj = 0; dj < ART_SIZE; dj++) {
-        int sj = ART_SIZE - 1 - dj;                       /* GPU textures are stored bottom-up */
+        int sj = dj;                                      /* rows already match the texture's orientation */
         int sy0 = sj * h / ART_SIZE, sy1 = (sj + 1) * h / ART_SIZE;
         if (sy1 <= sy0) sy1 = sy0 + 1;
         if (sy1 > h) sy1 = h;
